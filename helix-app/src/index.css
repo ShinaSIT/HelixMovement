@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── BASE NEUTRAL THEME ─────────────────────────────
+   This is the default. Overridden each year via
+   Supabase theme_config. Change nothing here —
+   edit through the admin panel instead.
+──────────────────────────────────────────────────── */
+:root {
+  --color-primary:    #4A90D9;
+  --color-secondary:  #1F2937;
+  --color-accent:     #F5C518;
+  --color-background: #0F0F0F;
+  --color-surface:    #1A1A1A;
+  --color-text:       #F0F0F0;
+  --color-text-muted: #9CA3AF;
+  --color-success:    #2ECC9A;
+  --color-warning:    #E8A020;
+  --color-danger:     #D94040;
+  --font-display:     'Inter', sans-serif;
+  --font-body:        'Inter', sans-serif;
+  --border-radius:    8px;
+  --texture-url:      none;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  min-height: 100dvh;
+}
