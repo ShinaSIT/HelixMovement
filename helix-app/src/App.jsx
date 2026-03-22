@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import OpsDashboard from './pages/ops/OpsDashboard'
 import CsvUpload from './pages/ops/CsvUpload'
+import ScheduleView from './pages/ops/ScheduleView'
 
 function App() {
   const { loading } = useAuth()
@@ -25,6 +26,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/ops" element={<OpsDashboard />} />
         <Route path="/ops/upload" element={<CsvUpload />} />
+        <Route path="/ops/schedule" element={<ScheduleView />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

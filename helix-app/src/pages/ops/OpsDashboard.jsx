@@ -27,6 +27,21 @@ export default function OpsDashboard() {
       >
         Upload CSV Data
       </button>
+      <button
+        onClick={() => navigate('/ops/schedule')}
+        style={{
+            padding: '0.75rem 1.25rem',
+            backgroundColor: 'var(--color-surface)',
+            color: 'var(--color-text)',
+            border: '1px solid #2a2a2a',
+            borderRadius: 'var(--border-radius)',
+            cursor: 'pointer',
+            fontWeight: 600,
+            marginLeft: '0.75rem',
+        }}
+        >
+        View Schedule
+        </button>
     </div>
   )
 }

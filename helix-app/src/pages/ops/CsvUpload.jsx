@@ -184,7 +184,7 @@ export default function CsvUpload() {
         const { data: version, error: vErr } = await supabase
           .from('schedule_versions')
           .insert({
-            version_number: Date.now(),
+            version_number: Math.floor(Date.now() / 1000000),
             label: versionLabel || 'Uploaded version',
             is_active: true,
             year: new Date().getFullYear(),
