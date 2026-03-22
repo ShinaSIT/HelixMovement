@@ -2,9 +2,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import OpsDashboard from './pages/ops/OpsDashboard'
+import CsvUpload from './pages/ops/CsvUpload'
 
 function App() {
-  const { user, loading } = useAuth()
+  const { loading } = useAuth()
 
   if (loading) return (
     <div style={{ 
@@ -23,6 +24,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/ops" element={<OpsDashboard />} />
+        <Route path="/ops/upload" element={<CsvUpload />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
