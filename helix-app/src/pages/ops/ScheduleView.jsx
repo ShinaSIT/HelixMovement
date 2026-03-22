@@ -8,6 +8,9 @@ const DAYS = [
 ]
 
 export default function ScheduleView() {
+  const user = JSON.parse(localStorage.getItem('helix_user'))
+  const isOpsAdmin = user?.system_role === 'ops_admin'
+
   const [day, setDay] = useState(1)
   const [view, setView] = useState('suballiance')
   const [schedule, setSchedule] = useState([])
@@ -17,7 +20,20 @@ export default function ScheduleView() {
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(new Date())
 
-  // ── LOAD FUNCTIONS (must be above useEffects) ──────────
+  // Clear modal state
+  const [showClearModal, setShowClearModal] = useState(false)
+  const [clearType, setClearType] = useState('all')
+  const [clearDay, setClearDay] = useState(1)
+  const [clearSuballiance, setClearSuballiance] = useState('')
+  const [clearing, setClearing] = useState(false)
+  const [clearResult, setClearResult] = useState(null)
+  const [confirmStep, setConfirmStep] = useState(false)
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30000)
+    return () => clearInterval(timer)
+  }, [])
+
   async function loadSchedule() {
     const { data } = await supabase
       .from('schedule')
@@ -57,16 +73,13 @@ export default function ScheduleView() {
     setLoading(false)
   }
 
-  // ── USE EFFECTS ────────────────────────────────────────
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000)
     return () => clearInterval(timer)
   }, [])
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadAll()
-  }, [day])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadAll() }, [day])
 
   useEffect(() => {
     const channel = supabase
@@ -75,21 +88,63 @@ export default function ScheduleView() {
         event: '*',
         schema: 'public',
         table: 'movements',
-      }, () => {
-        loadMovements()
-      })
+      }, () => loadMovements())
       .subscribe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => supabase.removeChannel(channel)
   }, [])
 
-  // Get movement for a suballiance at a station
+  async function handleClear() {
+    setClearing(true)
+    try {
+      if (clearType === 'all') {
+        await supabase
+          .from('movements')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000')
+
+      } else if (clearType === 'day') {
+        const { data: slots } = await supabase
+          .from('schedule')
+          .select('suballiance_id, station_id, schedule_versions!inner(is_active)')
+          .eq('day', clearDay)
+          .eq('schedule_versions.is_active', true)
+
+        for (const slot of slots || []) {
+          await supabase
+            .from('movements')
+            .delete()
+            .eq('suballiance_id', slot.suballiance_id)
+            .eq('station_id', slot.station_id)
+        }
+
+      } else if (clearType === 'suballiance') {
+        await supabase
+          .from('movements')
+          .delete()
+          .eq('suballiance_id', clearSuballiance)
+      }
+
+      setClearResult({ type: 'success', message: 'Cleared successfully.' })
+      await loadMovements()
+      setTimeout(() => {
+        setShowClearModal(false)
+        setClearResult(null)
+        setConfirmStep(false)
+      }, 1500)
+
+    } catch (err) {
+      setClearResult({ type: 'error', message: err.message || 'Clear failed.' })
+    }
+    setClearing(false)
+  }
+
   function getMovement(suballianceId, stationId) {
     return movements.find(
       m => m.suballiance_id === suballianceId && m.station_id === stationId
     )
   }
 
-  // Get current slot happening right now based on time
   function getCurrentSlots() {
     const nowTime = now.getHours() * 60 + now.getMinutes()
     return schedule.filter(slot => {
@@ -102,7 +157,6 @@ export default function ScheduleView() {
     })
   }
 
-  // Check if a slot is overdue (arrival passed by >10 min, no check-in)
   function isStraggler(slot) {
     if (!slot.expected_arrival) return false
     const movement = getMovement(slot.suballiance_id, slot.station_id)
@@ -119,24 +173,20 @@ export default function ScheduleView() {
     )
   }
 
-  // Get all unique slot numbers for this day
   const slotNumbers = [...new Set(schedule.map(s => s.slot_number))].sort((a, b) => a - b)
 
-  // Get slots for a specific suballiance
   function getSlotsForSuballiance(suballianceId) {
     return slotNumbers.map(slot => schedule.find(
       s => s.suballiance_id === suballianceId && s.slot_number === slot
     ))
   }
 
-  // Get slots for a specific station
   function getSlotsForStation(stationId) {
     return slotNumbers.map(slot => schedule.find(
       s => s.station_id === stationId && s.slot_number === slot
     ))
   }
 
-  // Status badge for a slot cell
   function SlotCell({ slot, highlight }) {
     if (!slot) return (
       <td style={{
@@ -165,22 +215,15 @@ export default function ScheduleView() {
 
     const statusColor = straggler
       ? 'var(--color-danger)'
-      : checkedOut
-      ? 'var(--color-success)'
-      : checkedIn
-      ? 'var(--color-success)'
-      : current
-      ? 'var(--color-warning)'
+      : checkedOut ? 'var(--color-success)'
+      : checkedIn ? 'var(--color-success)'
+      : current ? 'var(--color-warning)'
       : '#444'
 
-    const statusLabel = checkedOut
-      ? 'OUT'
-      : checkedIn
-      ? 'IN'
-      : straggler
-      ? 'LATE'
-      : current
-      ? 'DUE'
+    const statusLabel = checkedOut ? 'OUT'
+      : checkedIn ? 'IN'
+      : straggler ? 'LATE'
+      : current ? 'DUE'
       : ''
 
     return (
@@ -193,23 +236,18 @@ export default function ScheduleView() {
         minWidth: '130px',
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-          {/* Station or suballiance name */}
           <span style={{ fontSize: '0.82rem', color: 'var(--color-text)', fontWeight: 500 }}>
             {view === 'suballiance'
               ? stations.find(s => s.station_id === slot.station_id)?.station_name || slot.station_id
               : suballiances.find(s => s.suballiance_id === slot.suballiance_id)?.suballiance_name || slot.suballiance_id
             }
           </span>
-
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            {/* Time */}
             {slot.expected_arrival && (
               <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
                 {slot.expected_arrival.slice(0, 5)}–{slot.expected_departure?.slice(0, 5) || '?'}
               </span>
             )}
-
-            {/* Status badge */}
             {statusLabel && (
               <span style={{
                 fontSize: '0.65rem',
@@ -233,14 +271,18 @@ export default function ScheduleView() {
     <div style={{ padding: '2rem', color: 'var(--color-text-muted)' }}>Loading schedule...</div>
   )
 
-  // Which suballiances/stations appear in today's schedule
   const activeSuballianceIds = [...new Set(schedule.map(s => s.suballiance_id))]
   const activeStationIds = [...new Set(schedule.map(s => s.station_id))]
   const activeSuballiances = suballiances.filter(s => activeSuballianceIds.includes(s.suballiance_id))
   const activeStations = stations.filter(s => activeStationIds.includes(s.station_id))
-
   const stragglerCount = schedule.filter(isStraggler).length
   const checkedInCount = schedule.filter(s => getMovement(s.suballiance_id, s.station_id)?.checked_in_at).length
+
+  const clearLabel = clearType === 'all'
+    ? 'all movements'
+    : clearType === 'day'
+    ? `Day ${clearDay} movements`
+    : suballiances.find(s => s.suballiance_id === clearSuballiance)?.suballiance_name + ' movements' || 'selected movements'
 
   return (
     <div style={{ padding: '2rem', maxWidth: '100%' }}>
@@ -254,18 +296,38 @@ export default function ScheduleView() {
           </p>
         </div>
 
-        {/* Stats */}
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           <StatBadge label="Checked In" value={checkedInCount} color="var(--color-success)" />
           <StatBadge label="Stragglers" value={stragglerCount} color={stragglerCount > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'} />
           <StatBadge label="Total Slots" value={schedule.length} color="var(--color-text-muted)" />
+
+          {/* Settings / Clear button — ops_admin only */}
+          {isOpsAdmin && (
+            <button
+              onClick={() => { setShowClearModal(true); setConfirmStep(false); setClearResult(null) }}
+              title="Movement settings"
+              style={{
+                width: '36px',
+                height: '36px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'var(--color-surface)',
+                border: '1px solid #2a2a2a',
+                borderRadius: 'var(--border-radius)',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                color: 'var(--color-text-muted)',
+              }}
+            >
+              ⚙
+            </button>
+          )}
         </div>
       </div>
 
       {/* Day tabs + View toggle */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-
-        {/* Day tabs */}
         <div style={{ display: 'flex', borderBottom: '2px solid #2a2a2a' }}>
           {DAYS.map(d => (
             <button
@@ -288,7 +350,6 @@ export default function ScheduleView() {
           ))}
         </div>
 
-        {/* View toggle */}
         <div style={{
           display: 'flex',
           backgroundColor: 'var(--color-surface)',
@@ -345,15 +406,10 @@ export default function ScheduleView() {
           <p style={{ color: '#444', fontSize: '0.82rem', marginTop: '0.5rem' }}>Upload a schedule CSV first.</p>
         </div>
       ) : (
-        <div style={{
-          overflowX: 'auto',
-          borderRadius: 'var(--border-radius)',
-          border: '1px solid #2a2a2a',
-        }}>
+        <div style={{ overflowX: 'auto', borderRadius: 'var(--border-radius)', border: '1px solid #2a2a2a' }}>
           <table style={{ borderCollapse: 'collapse', fontSize: '0.83rem', width: '100%' }}>
             <thead>
               <tr style={{ backgroundColor: '#1a1a1a' }}>
-                {/* Row header */}
                 <th style={{
                   padding: '0.65rem 1rem',
                   textAlign: 'left',
@@ -370,14 +426,9 @@ export default function ScheduleView() {
                 }}>
                   {view === 'suballiance' ? 'Suballiance' : 'Station'}
                 </th>
-
-                {/* Slot columns */}
                 {slotNumbers.map(slot => {
-                  // Find a sample slot to get time
                   const sample = schedule.find(s => s.slot_number === slot)
-                  const currentSlots = getCurrentSlots()
-                  const isNowSlot = currentSlots.some(s => s.slot_number === slot)
-
+                  const isNowSlot = getCurrentSlots().some(s => s.slot_number === slot)
                   return (
                     <th key={slot} style={{
                       padding: '0.65rem 0.75rem',
@@ -451,6 +502,231 @@ export default function ScheduleView() {
               }
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ── CLEAR MOVEMENTS MODAL ─────────────────────────── */}
+      {showClearModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0,0,0,0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100,
+          padding: '1rem',
+        }}>
+          <div style={{
+            backgroundColor: 'var(--color-surface)',
+            border: '1px solid #3a3a3a',
+            borderRadius: 'var(--border-radius)',
+            padding: '1.75rem',
+            maxWidth: '420px',
+            width: '100%',
+          }}>
+
+            {/* Modal header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ color: 'var(--color-text)', margin: 0 }}>Clear Movements</h3>
+              <button
+                onClick={() => { setShowClearModal(false); setClearResult(null); setConfirmStep(false) }}
+                style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', fontSize: '1.2rem', cursor: 'pointer' }}
+              >✕</button>
+            </div>
+
+            {!confirmStep ? (
+              <>
+                {/* Clear type selector */}
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                  {[
+                    { key: 'all', label: 'All' },
+                    { key: 'day', label: 'By Day' },
+                    { key: 'suballiance', label: 'By Suballiance' },
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setClearType(opt.key)}
+                      style={{
+                        flex: 1,
+                        padding: '0.5rem',
+                        borderRadius: 'var(--border-radius)',
+                        border: 'none',
+                        backgroundColor: clearType === opt.key ? 'var(--color-primary)' : '#2a2a2a',
+                        color: clearType === opt.key ? '#fff' : 'var(--color-text-muted)',
+                        fontWeight: 600,
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Day selector */}
+                {clearType === 'day' && (
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                    {[1, 2, 3].map(d => (
+                      <button
+                        key={d}
+                        onClick={() => setClearDay(d)}
+                        style={{
+                          flex: 1,
+                          padding: '0.5rem',
+                          borderRadius: 'var(--border-radius)',
+                          border: 'none',
+                          backgroundColor: clearDay === d ? 'var(--color-accent)' : '#2a2a2a',
+                          color: clearDay === d ? '#000' : 'var(--color-text-muted)',
+                          fontWeight: 600,
+                          fontSize: '0.85rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Day {d}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Suballiance selector */}
+                {clearType === 'suballiance' && (
+                  <select
+                    value={clearSuballiance}
+                    onChange={e => setClearSuballiance(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.75rem',
+                      backgroundColor: 'var(--color-background)',
+                      border: '1px solid #2a2a2a',
+                      borderRadius: 'var(--border-radius)',
+                      color: clearSuballiance ? 'var(--color-text)' : 'var(--color-text-muted)',
+                      fontSize: '0.88rem',
+                      outline: 'none',
+                      marginBottom: '1.25rem',
+                    }}
+                  >
+                    <option value="">Select suballiance...</option>
+                    {suballiances.map(s => (
+                      <option key={s.suballiance_id} value={s.suballiance_id}>
+                        {s.suballiance_name} ({s.alliance_name})
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <p style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem', marginBottom: '1.25rem' }}>
+                  {clearType === 'all' && 'This will delete ALL check-in and check-out records.'}
+                  {clearType === 'day' && `This will delete all movements for Day ${clearDay}.`}
+                  {clearType === 'suballiance' && 'This will delete all movements for the selected suballiance.'}
+                  {' '}This cannot be undone.
+                </p>
+
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button
+                    onClick={() => { setShowClearModal(false); setClearResult(null) }}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      backgroundColor: 'transparent',
+                      color: 'var(--color-text-muted)',
+                      border: '1px solid #3a3a3a',
+                      borderRadius: 'var(--border-radius)',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => setConfirmStep(true)}
+                    disabled={clearType === 'suballiance' && !clearSuballiance}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      backgroundColor: (clearType === 'suballiance' && !clearSuballiance) ? '#2a2a2a' : 'var(--color-danger)',
+                      color: (clearType === 'suballiance' && !clearSuballiance) ? 'var(--color-text-muted)' : '#fff',
+                      border: 'none',
+                      borderRadius: 'var(--border-radius)',
+                      fontWeight: 700,
+                      cursor: (clearType === 'suballiance' && !clearSuballiance) ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Continue →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Confirm step */}
+                <div style={{
+                  backgroundColor: 'rgba(217,64,64,0.08)',
+                  border: '1px solid rgba(217,64,64,0.2)',
+                  borderRadius: 'var(--border-radius)',
+                  padding: '1rem',
+                  marginBottom: '1.25rem',
+                  textAlign: 'center',
+                }}>
+                  <p style={{ color: 'var(--color-danger)', fontWeight: 700, marginBottom: '0.25rem' }}>
+                    Are you sure?
+                  </p>
+                  <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+                    You are about to permanently delete{' '}
+                    <strong style={{ color: 'var(--color-text)' }}>{clearLabel}</strong>.
+                  </p>
+                </div>
+
+                {/* Result message */}
+                {clearResult && (
+                  <div style={{
+                    padding: '0.6rem 0.85rem',
+                    borderRadius: 'var(--border-radius)',
+                    marginBottom: '1rem',
+                    backgroundColor: clearResult.type === 'success' ? 'rgba(46,204,154,0.1)' : 'rgba(217,64,64,0.1)',
+                    color: clearResult.type === 'success' ? 'var(--color-success)' : 'var(--color-danger)',
+                    fontSize: '0.85rem',
+                    border: `1px solid ${clearResult.type === 'success' ? 'rgba(46,204,154,0.3)' : 'rgba(217,64,64,0.3)'}`,
+                  }}>
+                    {clearResult.message}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button
+                    onClick={() => setConfirmStep(false)}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      backgroundColor: 'transparent',
+                      color: 'var(--color-text-muted)',
+                      border: '1px solid #3a3a3a',
+                      borderRadius: 'var(--border-radius)',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ← Back
+                  </button>
+                  <button
+                    onClick={handleClear}
+                    disabled={clearing}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      backgroundColor: clearing ? '#2a2a2a' : 'var(--color-danger)',
+                      color: clearing ? 'var(--color-text-muted)' : '#fff',
+                      border: 'none',
+                      borderRadius: 'var(--border-radius)',
+                      fontWeight: 700,
+                      cursor: clearing ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {clearing ? 'Clearing...' : 'Yes, Clear'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

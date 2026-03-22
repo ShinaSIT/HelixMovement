@@ -42,6 +42,21 @@ export default function OpsDashboard() {
         >
         View Schedule
         </button>
+        <button
+        onClick={() => navigate('/ops/movements')}
+        style={{
+            padding: '0.75rem 1.25rem',
+            backgroundColor: 'rgba(217,64,64,0.1)',
+            color: 'var(--color-danger)',
+            border: '1px solid rgba(217,64,64,0.3)',
+            borderRadius: 'var(--border-radius)',
+            cursor: 'pointer',
+            fontWeight: 600,
+            marginLeft: '0.75rem',
+        }}
+        >
+        Movement Control
+        </button>
     </div>
   )
 }

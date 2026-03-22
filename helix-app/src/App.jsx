@@ -4,6 +4,7 @@ import Login from './pages/Login'
 import OpsDashboard from './pages/ops/OpsDashboard'
 import CsvUpload from './pages/ops/CsvUpload'
 import ScheduleView from './pages/ops/ScheduleView'
+import FacilitatorView from './pages/facilitator/FacilitatorView'
 
 function App() {
   const { loading } = useAuth()
@@ -27,6 +28,7 @@ function App() {
         <Route path="/ops" element={<OpsDashboard />} />
         <Route path="/ops/upload" element={<CsvUpload />} />
         <Route path="/ops/schedule" element={<ScheduleView />} />
+        <Route path="/facilitator" element={<FacilitatorView />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
